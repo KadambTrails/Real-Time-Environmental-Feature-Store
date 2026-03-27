@@ -35,3 +35,41 @@ resource "azurerm_eventhub" "weather_eh" {
   partition_count     = 2
   message_retention   = 1
 }
+
+# 5. Create a Storage Account (The Data Lake)
+resource "azurerm_storage_account" "datalake" {
+  name                     = "stweatherstorearchit" # Must be unique/lowercase
+  resource_group_name      = azurerm_resource_group.rg.name
+  location                 = azurerm_resource_group.rg.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  is_hns_enabled           = true # This turns "Storage" into a "Data Lake"
+}
+
+# 6. Create a Container for the Bronze Data
+resource "azurerm_storage_data_lake_gen2_filesystem" "bronze" {
+  name               = "bronze"
+  storage_account_id = azurerm_storage_account.datalake.id
+}
+
+# 7. Update Event Hub to enable Capture
+resource "azurerm_eventhub" "weather_eh" {
+  name                = "weather-raw-stream"
+  namespace_name      = azurerm_eventhub_namespace.eh_ns.name
+  resource_group_name = azurerm_resource_group.rg.name
+  partition_count     = 2
+  message_retention   = 1
+
+  capture_description {
+    enabled             = true
+    encoding            = "Avro"
+    interval_in_seconds = 300
+    size_limit_in_bytes = 104857600
+    destination {
+      name                = "EventHubArchive.AzureBlockBlob"
+      archive_name_format = "{Namespace}/{EventHub}/{PartitionId}/{Year}/{Month}/{Day}/{Hour}/{Minute}/{Second}"
+      blob_container_name = azurerm_storage_data_lake_gen2_filesystem.bronze.name
+      storage_account_id  = azurerm_storage_account.datalake.id
+    }
+  }
+}
