@@ -22,7 +22,6 @@ def fetch_weather():
     return None
 
 def run_producer():
-    # Create the client to connect to Azure
     client = EventHubProducerClient.from_connection_string(CONNECTION_STR, eventhub_name=EVENTHUB_NAME)
     
     print(f"--- Starting Stream for Delhi ({LAT}, {LON}) ---")
@@ -30,21 +29,23 @@ def run_producer():
     try:
         with client:
             while True:
-                data = fetch_weather()
-                if data:
-                    # Industry standard: Add an ingestion timestamp
-                    data['ingested_at_utc'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-                    
-                    # Prepare the event
-                    event_data_batch = client.create_batch()
-                    event_data_batch.add(EventData(json.dumps(data)))
-                    
-                    # Send to Azure
-                    client.send_batch(event_data_batch)
-                    print(f"PRODUCER: Sent Temp={data['temperature']}°C | Wind={data['windspeed']}km/h")
+                try:
+                    data = fetch_weather()
+                    if data:
+                        data['ingested_at_utc'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                        
+                        event_data_batch = client.create_batch()
+                        event_data_batch.add(EventData(json.dumps(data)))
+                        
+                        client.send_batch(event_data_batch)
+                        print(f"PRODUCER: Sent Temp={data['temperature']}°C")
                 
-                # Wait 60 seconds before next poll
-                time.sleep(30)
+                except Exception as e:
+                    # If the API fails or SSL breaks, don't crash! 
+                    # Just log it and wait for the next cycle.
+                    print(f"ERROR: Connection issue: {e}. Retrying in 60s...")
+
+                time.sleep(60)
     except KeyboardInterrupt:
         print("Stopping Producer...")
 
